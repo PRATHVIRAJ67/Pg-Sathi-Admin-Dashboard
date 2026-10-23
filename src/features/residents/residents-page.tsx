@@ -1,6 +1,6 @@
 import { useDeferredValue, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Plus, Users } from 'lucide-react';
+import { Plus, QrCode, Users } from 'lucide-react';
 import { useResidents } from '@pg/api-client/react';
 import { formatDate } from '@pg/shared';
 import type { ResidentListParams } from '@pg/api-client';
@@ -12,6 +12,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@pg/ui-web/ui/table';
 import { EmptyState, ErrorState, Money, PageHeader, Pagination, ResidentStatusBadge, SearchInput, TableSkeleton } from '@pg/ui-web/common';
 import { useDialogs } from '@/app/stores';
 import { useCurrentWorkspace } from '@/app/workspace';
+import { JoinQrDialog, JoinRequestsBanner } from './join-requests';
 
 const PAGE = 25;
 
@@ -25,6 +26,7 @@ export function ResidentsPage() {
   const status = (params.get('status') as ResidentListParams['status']) ?? 'current';
   const sort = (params.get('sort') as ResidentListParams['sort']) ?? 'name';
   const [offset, setOffset] = useState(0);
+  const [joinQr, setJoinQr] = useState(false);
   const finance = can('finance.read');
 
   const residents = useResidents(tenantId, { search: deferredSearch.trim() || undefined, status, sort, property_id: propertyId, limit: PAGE, offset });
@@ -42,12 +44,19 @@ export function ResidentsPage() {
         description="Everyone staying with you, past and present."
         actions={
           can('residents.write') && (
-            <Button onClick={() => open({ kind: 'add-resident' })}>
-              <Plus /> Add resident
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setJoinQr(true)}>
+                <QrCode /> Join QR
+              </Button>
+              <Button onClick={() => open({ kind: 'add-resident' })}>
+                <Plus /> Add resident
+              </Button>
+            </div>
           )
         }
       />
+      <JoinRequestsBanner />
+      <JoinQrDialog open={joinQr} onOpenChange={setJoinQr} />
       <Card>
         <div className="flex flex-col gap-3 border-b border-gray-100 p-4 lg:flex-row lg:items-center lg:justify-between">
           <Segmented

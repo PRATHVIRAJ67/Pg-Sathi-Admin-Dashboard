@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from '@tanstack/react-query';
-import type { ISODate, UUID } from '@pg/shared';
+import type { ISODate, JoinRequestStatus, UUID } from '@pg/shared';
 import { toAppError, type AppError } from '../errors';
 import type { ExpenseListParams, InvoiceListParams, PaymentListParams, ResidentListParams } from '../service';
 import { useBackend } from './context';
@@ -28,6 +28,46 @@ export function useWorkspace(tenantId: UUID | null | undefined) {
   return useQuery({
     queryKey: queryKeys.workspace(tenantId ?? ''),
     queryFn: () => data.getWorkspace(tenantId!),
+    enabled: enabled(tenantId),
+  });
+}
+
+/** Owner's Razorpay connection (key id and mode only, never secrets). */
+export function usePaymentGateway(tenantId: UUID | null | undefined) {
+  const { data } = useBackend();
+  return useQuery({
+    queryKey: queryKeys.paymentGateway(tenantId ?? ''),
+    queryFn: () => data.getPaymentGateway(tenantId!),
+    enabled: enabled(tenantId),
+  });
+}
+
+export function useJoinLinks(tenantId: UUID | null | undefined) {
+  const { data } = useBackend();
+  return useQuery({
+    queryKey: queryKeys.joinLinks(tenantId ?? ''),
+    queryFn: () => data.listJoinLinks(tenantId!),
+    enabled: enabled(tenantId),
+  });
+}
+
+/** Join requests from the QR form. Pending ones are re-checked every minute so new ones show up in the bell. */
+export function useJoinRequests(tenantId: UUID | null | undefined, status: JoinRequestStatus | 'all' = 'pending', options: { enabled?: boolean } = {}) {
+  const { data } = useBackend();
+  return useQuery({
+    queryKey: queryKeys.joinRequests(tenantId ?? '', status),
+    queryFn: () => data.listJoinRequests(tenantId!, status),
+    enabled: enabled(tenantId) && (options.enabled ?? true),
+    refetchInterval: status === 'pending' ? 60_000 : false,
+  });
+}
+
+/** Resident app: can this business take online payments right now? */
+export function useOnlinePaymentsAvailable(tenantId: UUID | null | undefined) {
+  const { data } = useBackend();
+  return useQuery({
+    queryKey: queryKeys.onlinePayments(tenantId ?? ''),
+    queryFn: () => data.onlinePaymentsAvailable(tenantId!),
     enabled: enabled(tenantId),
   });
 }

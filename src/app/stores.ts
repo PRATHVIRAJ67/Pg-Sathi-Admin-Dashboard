@@ -45,7 +45,7 @@ export type GlobalDialog =
   | { kind: 'add-resident' }
   | { kind: 'add-expense' }
   | { kind: 'add-property' }
-  | { kind: 'add-rooms'; propertyId?: string }
+  | { kind: 'add-rooms'; propertyId?: string; floor?: string; mode?: 'single' | 'bulk' }
   | { kind: 'assign-bed'; residentId?: string; bedId?: string }
   | { kind: 'generate-rent' }
   | { kind: 'create-invoice'; residentId?: string };

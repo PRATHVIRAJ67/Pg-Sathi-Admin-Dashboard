@@ -1,4 +1,12 @@
-import { createAdminService, createDataService, createResidentAccessClient, createSupabaseBackend, unavailableResidentAccess } from '@pg/api-client';
+import {
+  createAdminService,
+  createDataService,
+  createOnlinePaymentsClient,
+  createResidentAccessClient,
+  createSupabaseBackend,
+  unavailableOnlinePayments,
+  unavailableResidentAccess,
+} from '@pg/api-client';
 import { unavailableStorage, type Backend } from '@pg/api-client/react';
 
 export type BootResult =
@@ -23,6 +31,7 @@ export async function bootBackend(onProgress: (message: string) => void): Promis
   try {
     if (env.supabaseUrl && env.supabaseKey) {
       const sb = createSupabaseBackend({ url: env.supabaseUrl, anonKey: env.supabaseKey });
+      const accessToken = async () => (await sb.client.auth.getSession()).data.session?.access_token ?? null;
       return {
         ok: true,
         backend: {
@@ -31,9 +40,9 @@ export async function bootBackend(onProgress: (message: string) => void): Promis
           admin: createAdminService(sb.transport),
           auth: sb.auth,
           storage: sb.storage,
-          residentAccess: env.residentApiUrl
-            ? createResidentAccessClient(env.residentApiUrl, async () => (await sb.client.auth.getSession()).data.session?.access_token ?? null)
-            : unavailableResidentAccess,
+          residentAccess: env.residentApiUrl ? createResidentAccessClient(env.residentApiUrl, accessToken) : unavailableResidentAccess,
+          // The same service also handles online payments.
+          onlinePayments: env.residentApiUrl ? createOnlinePaymentsClient(env.residentApiUrl, accessToken) : unavailableOnlinePayments,
         },
       };
     }

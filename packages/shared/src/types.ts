@@ -15,6 +15,77 @@ export type RentMode = 'per_bed' | 'per_room';
 export type PaymentMethod = 'cash' | 'upi' | 'bank_transfer' | 'card' | 'cheque' | 'other';
 export type PaymentSource = 'manual' | 'gateway';
 export type PaymentStatus = 'recorded' | 'voided' | 'pending' | 'succeeded' | 'failed' | 'refunded';
+
+// ---------------------------------------------------------------------------
+// Join by QR code (self-registration)
+// ---------------------------------------------------------------------------
+export type JoinRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface JoinLink {
+  id: UUID;
+  code: string;
+  /** null = one QR for the whole business (the form asks which property). */
+  property_id: UUID | null;
+  property_name: string | null;
+  is_active: boolean;
+  created_at: string;
+  requests: number;
+}
+
+/** What the public join form shows. */
+export interface JoinLinkInfo {
+  business_name: string;
+  city: string | null;
+  contact_phone: string | null;
+  property: { id: UUID; name: string; locality: string | null; city: string | null; gender_policy: GenderPolicy } | null;
+  properties: { id: UUID; name: string; locality: string | null; gender_policy: GenderPolicy }[];
+}
+
+export interface JoinRequestInput {
+  full_name: string;
+  phone: string;
+  email?: string | null;
+  gender?: 'male' | 'female' | 'other' | null;
+  date_of_birth?: ISODate | null;
+  occupation?: string | null;
+  organization?: string | null;
+  id_proof_type?: string | null;
+  id_proof_number?: string | null;
+  permanent_address?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  emergency_contact_relation?: string | null;
+  preferred_move_in?: ISODate | null;
+  room_preference?: string | null;
+  property_id?: UUID | null;
+  note?: string | null;
+}
+
+export interface JoinRequest extends Required<Omit<JoinRequestInput, 'property_id' | 'gender'>> {
+  id: UUID;
+  status: JoinRequestStatus;
+  created_at: string;
+  updated_at: string;
+  gender: 'male' | 'female' | 'other' | null;
+  property_id: UUID | null;
+  property_name: string | null;
+  resident_id: UUID | null;
+  reviewed_at: string | null;
+  reject_reason: string | null;
+  /** A current resident with the same phone number, if any. */
+  existing_resident: { id: UUID; full_name: string } | null;
+}
+
+/** An owner's Razorpay connection as the dashboard sees it. Secrets never leave the server. */
+export interface PaymentGatewayStatus {
+  provider: 'razorpay';
+  key_id: string;
+  mode: 'test' | 'live';
+  is_enabled: boolean;
+  has_webhook_secret: boolean;
+  verified_at: string;
+  updated_at: string;
+}
 export type InvoiceKind = 'rent' | 'other';
 export type InvoiceStatus = 'issued' | 'void';
 export type InvoicePaymentStatus = 'paid' | 'partially_paid' | 'pending' | 'overdue' | 'void';

@@ -23,7 +23,10 @@ export function GlobalDialogs() {
       />
       <ExpenseDialog open={dialog?.kind === 'add-expense'} onOpenChange={onOpenChange} />
       <PropertyFormDialog open={dialog?.kind === 'add-property'} onOpenChange={onOpenChange} />
-      <AddRoomsDialog open={dialog?.kind === 'add-rooms'} onOpenChange={onOpenChange} propertyId={dialog?.kind === 'add-rooms' ? dialog.propertyId : undefined} />
+      <AddRoomsDialog open={dialog?.kind === 'add-rooms'} onOpenChange={onOpenChange} propertyId={dialog?.kind === 'add-rooms' ? dialog.propertyId : undefined}
+        floor={dialog?.kind === 'add-rooms' ? dialog.floor : undefined}
+        mode={dialog?.kind === 'add-rooms' ? dialog.mode : undefined}
+      />
       <GenerateRentDialog open={dialog?.kind === 'generate-rent'} onOpenChange={onOpenChange} />
       <CreateInvoiceDialog open={dialog?.kind === 'create-invoice'} onOpenChange={onOpenChange} residentId={dialog?.kind === 'create-invoice' ? dialog.residentId : undefined} />
     </>

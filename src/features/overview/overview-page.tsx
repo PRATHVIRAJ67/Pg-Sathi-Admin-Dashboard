@@ -308,7 +308,7 @@ export function OverviewPage() {
                 { show: can('residents.write'), icon: Users, label: 'Add resident', onClick: () => open({ kind: 'add-resident' }) },
                 { show: can('residents.write'), icon: BedDouble, label: 'Assign bed', onClick: () => open({ kind: 'assign-bed' }) },
                 { show: can('finance.write'), icon: Receipt, label: 'Add expense', onClick: () => open({ kind: 'add-expense' }) },
-                { show: can('properties.write'), icon: Plus, label: 'Add room', onClick: () => open({ kind: 'add-rooms' }) },
+                { show: can('properties.write'), icon: Plus, label: 'Add room', onClick: () => open({ kind: 'add-rooms', mode: 'single' }) },
                 { show: can('properties.write'), icon: Building2, label: 'Add property', onClick: () => open({ kind: 'add-property' }) },
               ]
                 .filter((a) => a.show)

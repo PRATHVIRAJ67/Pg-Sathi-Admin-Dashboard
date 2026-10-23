@@ -12,6 +12,7 @@ import { Segmented } from '@pg/ui-web/ui/overlays';
 import { Table, TBody, TD, TH, THead, TR } from '@pg/ui-web/ui/table';
 import { ConfirmDialog, EmptyState, ErrorState, Field, InvoiceStatusBadge, Money, PageHeader, Pagination, SearchInput, StatCard, TableSkeleton } from '@pg/ui-web/common';
 import { MonthInput } from '@/components/pickers';
+import { UpiQr, upiPayUrl } from '@/components/upi-qr';
 import { useDialogs } from '@/app/stores';
 import { useCurrentWorkspace } from '@/app/workspace';
 import { BusinessLetterhead } from '@/features/payments/payments-pages';
@@ -290,9 +291,17 @@ export function InvoiceDetailPage() {
         )}
         {inv.notes && <p className="mt-6 text-[13px] text-gray-600">{inv.notes}</p>}
         {inv.business.upi_id && inv.status === 'issued' && inv.balance_paise > 0 && (
-          <p className="mt-6 rounded-md bg-gray-25 p-3 text-[13px] text-gray-600 ring-1 ring-gray-100">
-            Pay by UPI to <span className="font-medium text-gray-900">{inv.business.upi_id}</span> and share the reference with the office.
-          </p>
+          <div className="mt-6 flex items-center gap-4 rounded-md bg-gray-25 p-3 text-[13px] text-gray-600 ring-1 ring-gray-100">
+            <UpiQr
+              size={112}
+              label={`UPI QR code to pay ${formatINR(inv.balance_paise)} to ${inv.business.name}`}
+              value={upiPayUrl({ upiId: inv.business.upi_id, payeeName: inv.business.name, amountPaise: inv.balance_paise, note: `Bill ${inv.invoice_number}` })}
+            />
+            <p>
+              <span className="block font-medium text-gray-900">Scan with any UPI app to pay {formatINR(inv.balance_paise)}</span>
+              or pay to UPI ID <span className="font-medium text-gray-900">{inv.business.upi_id}</span> and share the reference with the office.
+            </p>
+          </div>
         )}
         {inv.business.receipt_footer && <p className="mt-8 border-t border-gray-100 pt-4 text-center text-xs text-gray-400">{inv.business.receipt_footer}</p>}
       </Card>

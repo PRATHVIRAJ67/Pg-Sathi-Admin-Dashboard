@@ -1,8 +1,8 @@
 import { useDeferredValue, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
-import { ArrowLeft, Ban, CreditCard, Printer } from 'lucide-react';
-import { useBackend, usePayment, usePayments, useTenantMutation } from '@pg/api-client/react';
+import { ArrowLeft, Ban, CreditCard, Printer, Zap } from 'lucide-react';
+import { useBackend, usePayment, usePaymentGateway, usePayments, useTenantMutation } from '@pg/api-client/react';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, endOfMonthISO, formatDate, formatDateTime, formatINR, formatMonth, startOfMonthISO, todayISO, type BusinessDetails, type PaymentMethod } from '@pg/shared';
 import { Button } from '@pg/ui-web/ui/button';
 import { Select, Textarea } from '@pg/ui-web/ui/form-controls';
@@ -42,7 +42,7 @@ export function PaymentsPage() {
     <div>
       <PageHeader
         title="Payments"
-        description="Money received, recorded manually by your team."
+        description="Money received: recorded by your team, or paid online by residents through Razorpay."
         actions={
           can('finance.write') && (
             <Button onClick={() => open({ kind: 'record-payment' })}>
@@ -54,7 +54,7 @@ export function PaymentsPage() {
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label={`Collected · ${formatMonth(month)}`} tone="success" loading={!payments.data} value={<Money paise={payments.data?.totals.amount_paise} />} />
         <StatCard label="Payments" loading={!payments.data} value={payments.data?.total ?? 0} footer={status === 'voided' ? 'Voided payments' : 'Recorded in this period'} />
-        <StatCard label="Online payments" value="Coming soon" footer="Razorpay collection is planned; today every payment is recorded manually." />
+        <OnlinePaymentsStat />
       </div>
       <Card>
         <div className="flex flex-col gap-3 border-b border-gray-100 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -119,6 +119,34 @@ export function PaymentsPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+/** Whether residents can pay online, with a way to set it up. */
+function OnlinePaymentsStat() {
+  const { tenantId, can } = useCurrentWorkspace();
+  const gateway = usePaymentGateway(tenantId);
+  const g = gateway.data;
+  const on = !!g?.is_enabled;
+  const setup = can('workspace.manage') ? (
+    <Link to="/app/settings/payments" className="font-medium text-accent-700 hover:underline">
+      {g ? 'Manage' : 'Set up Razorpay'}
+    </Link>
+  ) : null;
+  return (
+    <StatCard
+      label="Online payments"
+      icon={Zap}
+      tone={on ? 'success' : 'default'}
+      loading={gateway.isPending && !gateway.isError}
+      value={on ? `On${g.mode === 'test' ? ' · test mode' : ''}` : g ? 'Paused' : 'Off'}
+      footer={
+        <>
+          {on ? 'Residents pay from the app and payments appear here by themselves. ' : 'Connect your Razorpay account so residents can pay from the app. '}
+          {setup}
+        </>
+      }
+    />
   );
 }
 
@@ -214,10 +242,10 @@ export function PaymentDetailPage() {
             </>
           )}
           <dt className="text-gray-500">Recorded by</dt>
-          <dd className="text-right text-gray-900">{p.recorded_by_name ?? '—'}</dd>
+          <dd className="text-right text-gray-900">{p.recorded_by_name ?? (p.source === 'gateway' ? 'Automatic (Razorpay)' : '—')}</dd>
           <dt className="text-gray-500">Source</dt>
           <dd className="text-right">
-            <Badge>{p.source === 'manual' ? 'Recorded manually — not a gateway transaction' : 'Gateway verified'}</Badge>
+            <Badge tone={p.source === 'manual' ? 'neutral' : 'success'}>{p.source === 'manual' ? 'Recorded manually' : 'Paid online via Razorpay · verified'}</Badge>
           </dd>
         </dl>
         {live.length > 0 && (

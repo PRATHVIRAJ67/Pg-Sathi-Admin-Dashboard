@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Building2, Check, CheckCircle2, LogOut, Plus, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { ArrowRight, Building2, Check, CheckCircle2, LogOut, Plus, Trash2 } from 'lucide-react';
 import { newIdempotencyKey, toAppError } from '@pg/api-client';
 import { queryKeys, useBackend, useMyContext, useProperties, useRooms, useWorkspace } from '@pg/api-client/react';
 import {
@@ -28,6 +28,7 @@ import { useZodForm } from '@/lib/form';
 import { cn } from '@pg/ui-web/utils';
 import { useAuth } from '@/app/auth';
 import { DemoBanner } from '@/layout/app-shell';
+import { AddRoomsModeSwitch, RoomRangeBuilder, type AddRoomsMode, type RangeRoom } from '@/features/rooms/room-range';
 import { useSessionStore } from '@/app/stores';
 
 type ViewStep = 'business' | OnboardingStep;
@@ -467,8 +468,8 @@ function RoomsStep({ tenantId, onDone, onBack }: { tenantId: string; onDone: () 
   const workspace = useWorkspace(tenantId);
   const existingRooms = rooms.data ?? [];
   const [rentMode, setRentMode] = useState<RentMode>('per_bed');
-  const [rows, setRows] = useState<RoomRow[]>(() => ['101', '102', '103'].map((name) => newRow({ name, floor: 'Ground', category: 'Double sharing' })));
-  const [gen, setGen] = useState({ prefix: '', start: '201', count: '5', floor: 'First', beds: '2', rent: '' });
+  const [rows, setRows] = useState<RoomRow[]>([]);
+  const [addMode, setAddMode] = useState<AddRoomsMode>('bulk');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -484,15 +485,14 @@ function RoomsStep({ tenantId, onDone, onBack }: { tenantId: string; onDone: () 
   const update = (key: string, patch: Partial<RoomRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const totalBeds = rows.reduce((n, r) => n + (Number(r.beds) || 0), 0);
 
-  const generate = () => {
-    const start = Number(gen.start);
-    const count = Math.min(Math.max(Number(gen.count) || 0, 1), 100);
-    if (!Number.isFinite(start)) return;
-    const generated = Array.from({ length: count }, (_, i) =>
-      newRow({ name: `${gen.prefix}${start + i}`, floor: gen.floor, beds: gen.beds, rent: gen.rent, category: Number(gen.beds) === 1 ? 'Single' : `${gen.beds}-sharing` }),
-    );
-    setRows((rs) => [...rs.filter((r) => r.name.trim() !== ''), ...generated]);
+  const addRange = (list: RangeRoom[]) => {
+    setError(null);
+    setRows((rs) => [
+      ...rs.filter((r) => r.name.trim() !== ''),
+      ...list.map((r) => newRow({ name: r.name, floor: r.floor ?? '', category: r.category ?? '', beds: String(r.bed_count), rent: paiseToRupeesInput(r.rent_paise) })),
+    ]);
   };
+  const queuedFloors = [...new Set([...existingRooms.map((r) => r.floor), ...rows.map((r) => r.floor)].filter(Boolean) as string[])];
 
   const validate = (): string | null => {
     const names = new Set(existingRooms.map((r) => r.name.toLowerCase()));
@@ -573,48 +573,37 @@ function RoomsStep({ tenantId, onDone, onBack }: { tenantId: string; onDone: () 
         </div>
       )}
 
-      <div className="mb-5 flex flex-wrap items-end gap-4">
-        <Field label="Rent is charged" htmlFor="rent-mode">
-          <Select id="rent-mode" value={rentMode} onChange={(e) => setRentMode(e.target.value as RentMode)} className="w-48">
-            <option value="per_bed">Per bed (sharing)</option>
-            <option value="per_room">Per room (whole room)</option>
-          </Select>
-        </Field>
-        <p className="max-w-xs pb-2 text-xs text-gray-500">
-          {rentMode === 'per_bed' ? 'Each bed in a room pays the rent you enter.' : 'The rent you enter is for the whole room and is split across its beds.'}
+      <div className="rounded-xl border border-gray-200 p-4 sm:p-5">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-[14px] font-semibold text-gray-900">{addMode === 'bulk' ? 'Add rooms, a whole floor at a time' : 'Add one room'}</h3>
+          <AddRoomsModeSwitch value={addMode} onChange={setAddMode} />
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          {addMode === 'bulk'
+            ? 'Example: rooms 101 to 110 on the Ground floor, 2 beds each, ₹8,000 per bed. After you add a floor, the next one (201 to 210 on the 1st floor) is filled in for you. You can fix any single room in the list below.'
+            : 'For a room that is different from the rest. After adding, the next room number is filled in for you.'}
         </p>
+        <RoomRangeBuilder
+          key={addMode}
+          single={addMode === 'single'}
+          idPrefix="ob"
+          knownFloors={queuedFloors}
+          existingNames={[...existingRooms.map((r) => r.name), ...rows.map((r) => r.name)]}
+          defaultFloor="Ground"
+          rentMode={rentMode}
+          onRentModeChange={setRentMode}
+          showDeposit={false}
+          suggestNext
+          submitLabel={(n) => (n > 1 ? `Add ${n} rooms to the list` : 'Add to the list')}
+          onSubmit={addRange}
+        />
       </div>
 
-      <details className="group mb-5 rounded-lg border border-dashed border-gray-300 bg-gray-25 p-4">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-[13px] font-medium text-gray-800">
-          <Wand2 className="size-4 text-accent-600" aria-hidden /> Add many rooms at once
-          <span className="text-xs font-normal text-gray-500">— e.g. rooms 201 to 210 with 2 beds each</span>
-        </summary>
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
-          <Field label="Prefix" htmlFor="g-prefix">
-            <Input id="g-prefix" value={gen.prefix} onChange={(e) => setGen({ ...gen, prefix: e.target.value })} placeholder="e.g. A-" />
-          </Field>
-          <Field label="Start no." htmlFor="g-start">
-            <Input id="g-start" inputMode="numeric" value={gen.start} onChange={(e) => setGen({ ...gen, start: e.target.value })} />
-          </Field>
-          <Field label="How many" htmlFor="g-count">
-            <Input id="g-count" inputMode="numeric" value={gen.count} onChange={(e) => setGen({ ...gen, count: e.target.value })} />
-          </Field>
-          <Field label="Floor" htmlFor="g-floor">
-            <Input id="g-floor" value={gen.floor} onChange={(e) => setGen({ ...gen, floor: e.target.value })} />
-          </Field>
-          <Field label="Beds each" htmlFor="g-beds">
-            <Input id="g-beds" inputMode="numeric" value={gen.beds} onChange={(e) => setGen({ ...gen, beds: e.target.value })} />
-          </Field>
-          <Field label={rentMode === 'per_bed' ? 'Rent / bed' : 'Rent / room'} htmlFor="g-rent">
-            <MoneyInput id="g-rent" value={gen.rent} onChange={(e) => setGen({ ...gen, rent: e.target.value })} />
-          </Field>
-        </div>
-        <Button variant="secondary" size="sm" className="mt-3" onClick={generate}>
-          <Sparkles /> Generate rooms
-        </Button>
-      </details>
-
+      {rows.length > 0 && (
+        <h3 className="mb-2 mt-6 text-[13px] font-semibold text-gray-900">
+          Rooms to save <span className="font-normal text-gray-500">· edit or remove any room before saving</span>
+        </h3>
+      )}
       {rows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="w-full min-w-[640px] text-[13px]">
@@ -657,9 +646,11 @@ function RoomsStep({ tenantId, onDone, onBack }: { tenantId: string; onDone: () 
           </table>
         </div>
       )}
-      <Button variant="secondary" size="sm" className="mt-3" onClick={() => setRows((rs) => [...rs, newRow()])}>
-        <Plus /> Add a room
-      </Button>
+      {rows.length > 0 && (
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => setRows((rs) => [...rs, newRow({ floor: rs.at(-1)?.floor ?? '', beds: rs.at(-1)?.beds ?? '2', rent: rs.at(-1)?.rent ?? '' })])}>
+          <Plus /> Add one more row
+        </Button>
+      )}
       <div className="mt-4">
         <InlineError error={error} />
       </div>

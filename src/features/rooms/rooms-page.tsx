@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
-import { Ban, BedDouble, CheckCircle2, LayoutGrid, MoreHorizontal, Pencil, Plus, Rows3, Trash2, User, UserPlus } from 'lucide-react';
+import { ArrowUpDown, Ban, BedDouble, CheckCircle2, DoorOpen, Layers, LayoutGrid, MoreHorizontal, Pencil, Plus, Rows3, Trash2, User, UserPlus } from 'lucide-react';
 import { useBackend, useRooms, useTenantMutation } from '@pg/api-client/react';
 import { RENT_MODE_LABELS, formatINR, paiseToRupeesInput, rupeesToPaise, type Bed, type Room } from '@pg/shared';
 import { Button } from '@pg/ui-web/ui/button';
-import { Input, Select } from '@pg/ui-web/ui/form-controls';
-import { Badge, Card, Skeleton } from '@pg/ui-web/ui/surfaces';
+import { Input } from '@pg/ui-web/ui/form-controls';
+import { Badge, Card, Progress, Skeleton } from '@pg/ui-web/ui/surfaces';
 import { Dialog, DialogContent, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Segmented } from '@pg/ui-web/ui/overlays';
 import { Table, TBody, TD, TH, THead, TR } from '@pg/ui-web/ui/table';
 import { BedStatusBadge, ConfirmDialog, EmptyState, ErrorState, Field, InlineError, PageHeader } from '@pg/ui-web/common';
@@ -14,6 +14,7 @@ import { useDialogs } from '@/app/stores';
 import { useCurrentWorkspace } from '@/app/workspace';
 import { cn } from '@pg/ui-web/utils';
 import { EditRoomDialog } from './room-dialogs';
+import { FloorPicker, floorRank, floorTitle, sameFloor } from './floors';
 
 type StatusFilter = 'all' | 'vacant' | 'occupied' | 'unavailable';
 
@@ -26,12 +27,20 @@ export function RoomsPage() {
   const [status, setStatus] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
 
-  const floors = useMemo(() => [...new Set((rooms.data ?? []).map((r) => r.floor).filter(Boolean) as string[])], [rooms.data]);
+  const floors = useMemo(
+    () =>
+      (rooms.data ?? [])
+        .map((r) => r.floor?.trim())
+        .filter((f): f is string => !!f)
+        .reduce<string[]>((acc, f) => (acc.some((x) => sameFloor(x, f)) ? acc : [...acc, f]), [])
+        .sort((a, b) => floorRank(a) - floorRank(b)),
+    [rooms.data],
+  );
   const filtered = useMemo(
     () =>
       (rooms.data ?? []).filter(
         (r) =>
-          (!floor || r.floor === floor) &&
+          (!floor || sameFloor(r.floor, floor)) &&
           (status === 'all' || r.beds.some((b) => b.status === status)) &&
           (!search ||
             r.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -39,6 +48,22 @@ export function RoomsPage() {
       ),
     [rooms.data, floor, status, search],
   );
+  // Grid view groups rooms floor by floor (Ground, 1st, 2nd …), rooms in number order.
+  const byFloor = useMemo(() => {
+    // "2nd floor" and "Second" are the same level, so they share a section; unrecognised names stay separate.
+    const groups = new Map<string, { name: string; rank: number; rooms: Room[] }>();
+    for (const r of filtered) {
+      const name = r.floor?.trim() ?? '';
+      const rank = floorRank(name);
+      const key = rank < 1_000 ? `#${rank}` : name;
+      const group = groups.get(key) ?? { name, rank, rooms: [] };
+      group.rooms.push(r);
+      groups.set(key, group);
+    }
+    return [...groups.values()]
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+      .map((g) => ({ name: g.name, rooms: g.rooms.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })) }));
+  }, [filtered]);
   const allBeds = (rooms.data ?? []).flatMap((r) => r.beds);
   const counts = {
     all: allBeds.length,
@@ -55,9 +80,14 @@ export function RoomsPage() {
         description="Every bed is tracked individually. Click a bed to assign, view or update it."
         actions={
           can('properties.write') && (
-            <Button onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined })}>
-              <Plus /> Add rooms
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined, mode: 'single' })}>
+                <DoorOpen /> Add a room
+              </Button>
+              <Button onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined, mode: 'bulk' })}>
+                <Layers /> Add rooms in bulk
+              </Button>
+            </div>
           )
         }
       />
@@ -65,6 +95,7 @@ export function RoomsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Segmented
           label="Bed status"
+          className="max-w-full overflow-x-auto [&>button]:shrink-0 [&>button]:whitespace-nowrap"
           value={status}
           onChange={setStatus}
           options={[
@@ -75,14 +106,13 @@ export function RoomsPage() {
           ]}
         />
         {floors.length > 1 && (
-          <Select value={floor} onChange={(e) => setFloor(e.target.value)} aria-label="Floor" className="h-8 w-36 text-[13px]">
-            <option value="">All floors</option>
-            {floors.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </Select>
+          <Segmented
+            label="Floor"
+            className="max-w-full overflow-x-auto [&>button]:shrink-0 [&>button]:whitespace-nowrap"
+            value={floor}
+            onChange={setFloor}
+            options={[{ value: '', label: 'All floors' }, ...floors.map((f) => ({ value: f, label: f.replace(/\s*floor$/i, '') }))]}
+          />
         )}
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Room or resident" aria-label="Search rooms" className="h-8 w-48 text-[13px]" type="search" />
         <div className="ml-auto">
@@ -112,7 +142,18 @@ export function RoomsPage() {
             icon={BedDouble}
             title="No rooms yet"
             description="Add rooms with their number of beds. You can add a whole floor at once."
-            action={can('properties.write') ? <Button onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined })}><Plus /> Add rooms</Button> : undefined}
+            action={
+              can('properties.write') ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button variant="secondary" onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined, mode: 'single' })}>
+                    <DoorOpen /> Add a room
+                  </Button>
+                  <Button onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? undefined, mode: 'bulk' })}>
+                    <Layers /> Add rooms in bulk
+                  </Button>
+                </div>
+              ) : undefined
+            }
           />
         </Card>
       ) : filtered.length === 0 ? (
@@ -120,9 +161,9 @@ export function RoomsPage() {
           <EmptyState compact icon={BedDouble} title="No rooms match these filters" />
         </Card>
       ) : view === 'grid' ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((room) => (
-            <RoomCard key={room.id} room={room} showProperty={multiProperty} highlight={status} />
+        <div className="space-y-8">
+          {byFloor.map((group) => (
+            <FloorSection key={group.name || 'none'} name={group.name} rooms={group.rooms} propertyId={propertyId} showProperty={multiProperty} highlight={status} />
           ))}
         </div>
       ) : (
@@ -174,10 +215,61 @@ export function RoomsPage() {
   );
 }
 
+function FloorSection({ name, rooms, propertyId, showProperty, highlight }: { name: string; rooms: Room[]; propertyId: string | null; showProperty: boolean; highlight: StatusFilter }) {
+  const { can } = useCurrentWorkspace();
+  const open = useDialogs((s) => s.open);
+  const beds = rooms.flatMap((r) => r.beds);
+  const occupied = beds.filter((b) => b.status === 'occupied').length;
+  const vacant = beds.filter((b) => b.status === 'vacant').length;
+  const usable = beds.filter((b) => b.status !== 'unavailable').length;
+  const pct = usable ? Math.round((occupied / usable) * 100) : 0;
+  const headingId = `floor-${name || 'none'}`.replace(/\W+/g, '-');
+
+  return (
+    <section aria-labelledby={headingId}>
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-gray-200 pb-3">
+        <div className="flex items-center gap-2.5">
+          <span className="grid size-9 place-items-center rounded-lg bg-accent-50 text-accent-700">
+            <Layers className="size-[18px]" />
+          </span>
+          <div>
+            <h2 id={headingId} className="text-[15px] font-semibold text-gray-900">
+              {floorTitle(name)}
+            </h2>
+            <p className="text-xs text-gray-500">
+              {rooms.length} {rooms.length === 1 ? 'room' : 'rooms'} · {beds.length} {beds.length === 1 ? 'bed' : 'beds'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge tone={vacant ? 'success' : undefined} dot={vacant > 0}>
+            {vacant ? `${vacant} vacant` : 'Full'}
+          </Badge>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Progress value={pct} tone={pct >= 90 ? 'success' : 'accent'} className="w-24" />
+            <span className="tabular">{pct}% filled</span>
+          </div>
+        </div>
+        {can('properties.write') && (
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => open({ kind: 'add-rooms', propertyId: propertyId ?? rooms[0]?.property_id, floor: name || undefined, mode: 'single' })}>
+            <Plus /> {name ? 'Add room here' : 'Add room'}
+          </Button>
+        )}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {rooms.map((room) => (
+          <RoomCard key={room.id} room={room} showProperty={showProperty} highlight={highlight} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RoomCard({ room, showProperty, highlight }: { room: Room; showProperty: boolean; highlight: StatusFilter }) {
   const { tenantId, can } = useCurrentWorkspace();
   const { data } = useBackend();
   const [editing, setEditing] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const addBed = useTenantMutation(tenantId, () => data.addBeds(room.id, 1));
   const remove = useTenantMutation(tenantId, () => data.deleteRoom(room.id));
@@ -191,7 +283,7 @@ function RoomCard({ room, showProperty, highlight }: { room: Room; showProperty:
             <h3 className="text-[15px] font-semibold text-gray-900">Room {room.name}</h3>
             {!room.is_active && <Badge>Inactive</Badge>}
           </div>
-          <p className="mt-0.5 truncate text-xs text-gray-500">{[showProperty ? room.property_name : null, room.floor, room.category].filter(Boolean).join(' · ') || '—'}</p>
+          <p className="mt-0.5 truncate text-xs text-gray-500">{[showProperty ? room.property_name : null, room.category].filter(Boolean).join(' · ') || `${room.beds.length} ${room.beds.length === 1 ? 'bed' : 'beds'}`}</p>
         </div>
         {can('properties.write') && (
           <Menu>
@@ -203,6 +295,9 @@ function RoomCard({ room, showProperty, highlight }: { room: Room; showProperty:
             <MenuContent>
               <MenuItem onSelect={() => setEditing(true)}>
                 <Pencil /> Edit room
+              </MenuItem>
+              <MenuItem onSelect={() => setMoving(true)}>
+                <ArrowUpDown /> Move to another floor
               </MenuItem>
               <MenuItem disabled={room.beds.length >= 30} onSelect={() => addBed.mutate(undefined, { onSuccess: () => toast.success('Bed added'), onError: (e) => toast.error(e.message) })}>
                 <Plus /> Add a bed
@@ -229,6 +324,7 @@ function RoomCard({ room, showProperty, highlight }: { room: Room; showProperty:
         </span>
       </div>
       <EditRoomDialog open={editing} onOpenChange={setEditing} room={room} />
+      <MoveFloorDialog open={moving} onOpenChange={setMoving} room={room} />
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -324,6 +420,60 @@ function BedTile({ bed, room, dim }: { bed: Bed; room: Room; dim: boolean }) {
         onConfirm={() => remove.mutateAsync().then(() => toast.success('Bed deleted'))}
       />
     </>
+  );
+}
+
+function MoveFloorDialog({ open, onOpenChange, room }: { open: boolean; onOpenChange: (o: boolean) => void; room: Room }) {
+  const { tenantId } = useCurrentWorkspace();
+  const { data } = useBackend();
+  const rooms = useRooms(tenantId, room.property_id);
+  const known = [...new Set((rooms.data ?? []).map((r) => r.floor).filter(Boolean) as string[])];
+  const [floor, setFloor] = useState(room.floor ?? '');
+  const mutation = useTenantMutation(tenantId, () => data.updateRoom(room.id, { floor: floor.trim() || null }));
+  const unchanged = (floor.trim() || null) === (room.floor ?? null);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (o) setFloor(room.floor ?? '');
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent
+        size="sm"
+        title={`Move room ${room.name}`}
+        description="Pick the floor this room is on. Residents and rent stay the same."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={mutation.isPending}
+              disabled={unchanged}
+              // The room card remounts under its new floor section, which would drop mutate()'s
+              // per-call callbacks, so wait on the promise instead.
+              onClick={() =>
+                mutation
+                  .mutateAsync()
+                  .then(() => {
+                    toast.success(`Room ${room.name} moved to ${floorTitle(floor).toLowerCase()}`);
+                    onOpenChange(false);
+                  })
+                  .catch(() => undefined)
+              }
+            >
+              Move room
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <FloorPicker value={floor} onChange={setFloor} known={known} />
+          <InlineError error={mutation.error} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

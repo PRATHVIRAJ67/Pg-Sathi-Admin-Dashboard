@@ -5,6 +5,12 @@ import type {
   AdminTenantDetail,
   AdminTenantRow,
   AuditLogEntry,
+  JoinLink,
+  JoinLinkInfo,
+  JoinRequest,
+  JoinRequestInput,
+  JoinRequestStatus,
+  PaymentGatewayStatus,
   ChargeTemplate,
   DashboardSummary,
   DepositOverview,
@@ -402,6 +408,33 @@ export function createDataService(transport: RpcTransport) {
     recordPayment: ({ residentId, ...data }: RecordPaymentInput) =>
       call<UUID>('record_payment', { p_resident_id: residentId, p_data: compact(data) }),
     voidPayment: (paymentId: UUID, reason: string) => call<void>('void_payment', { p_payment_id: paymentId, p_reason: reason }),
+
+    // Online payments (owner's own Razorpay account) ---------------------------
+    // Connecting keys goes through the payments service (it checks them with Razorpay first).
+    getPaymentGateway: (tenantId: UUID) => call<PaymentGatewayStatus | null>('get_payment_gateway', { p_tenant_id: tenantId }),
+    setPaymentGatewayEnabled: (tenantId: UUID, enabled: boolean) =>
+      call<void>('set_payment_gateway_enabled', { p_tenant_id: tenantId, p_enabled: enabled }),
+    removePaymentGateway: (tenantId: UUID) => call<void>('remove_payment_gateway', { p_tenant_id: tenantId }),
+    onlinePaymentsAvailable: (tenantId: UUID) => call<boolean>('online_payments_available', { p_tenant_id: tenantId }),
+
+    // Join by QR code -----------------------------------------------------------
+    // Public form (works signed out):
+    joinLinkInfo: (code: string) => call<JoinLinkInfo>('join_link_info', { p_code: code }),
+    submitJoinRequest: (code: string, input: JoinRequestInput) =>
+      call<{ ok: true; business_name: string }>('submit_join_request', { p_code: code, p_data: compact(input) }),
+    // Owner side:
+    listJoinLinks: (tenantId: UUID) => call<JoinLink[]>('list_join_links', { p_tenant_id: tenantId }),
+    createJoinLink: (tenantId: UUID, propertyId: UUID | null = null) =>
+      call<UUID>('create_join_link', { p_tenant_id: tenantId, p_property_id: propertyId }),
+    setJoinLinkActive: (linkId: UUID, active: boolean) => call<void>('set_join_link_active', { p_link_id: linkId, p_active: active }),
+    regenerateJoinLink: (linkId: UUID) => call<void>('regenerate_join_link', { p_link_id: linkId }),
+    listJoinRequests: (tenantId: UUID, status: JoinRequestStatus | 'all' = 'pending') =>
+      call<JoinRequest[]>('list_join_requests', { p_tenant_id: tenantId, p_status: status }),
+    /** Creates the resident (with any corrections) and returns their id, ready for assigning a bed. */
+    approveJoinRequest: (requestId: UUID, corrections: Partial<JoinRequestInput> = {}) =>
+      call<UUID>('approve_join_request', { p_request_id: requestId, p_data: compact(corrections) }),
+    rejectJoinRequest: (requestId: UUID, reason?: string | null) =>
+      call<void>('reject_join_request', { p_request_id: requestId, p_reason: reason ?? null }),
 
     // Deposits -----------------------------------------------------------------
     listDeposits: (tenantId: UUID, params: { search?: string; property_id?: UUID | null; filter?: 'all' | 'held' | 'due' } = {}) =>

@@ -23,6 +23,8 @@ import { ReportsPage } from '@/features/reports/reports-page';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { AcceptInvitationPage } from '@/features/invitations/accept-invitation-page';
 import { ResidentPortalPage } from '@/features/portal/resident-portal-page';
+import { JoinPage } from '@/features/join/join-page';
+import { JoinRequestsPage } from '@/features/residents/join-requests';
 import { RequirePermission } from './require-permission';
 
 function RequireAuth() {
@@ -111,6 +113,8 @@ export function AppRoutes() {
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      {/* Public: the page behind an owner's join QR code. Works signed in or out. */}
+      <Route path="/join/:code" element={<JoinPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/invite/:token" element={<AcceptInvitationPage />} />
@@ -122,6 +126,9 @@ export function AppRoutes() {
           <Route path="properties/:propertyId" element={<PropertyDetailPage />} />
           <Route path="rooms" element={<RoomsPage />} />
           <Route path="residents" element={<ResidentsPage />} />
+          <Route element={<RequirePermission permission="residents.write" />}>
+            <Route path="residents/requests" element={<JoinRequestsPage />} />
+          </Route>
           <Route path="residents/:residentId" element={<ResidentDetailPage />} />
           <Route element={<RequirePermission permission="finance.read" />}>
             <Route path="rent" element={<RentPage />} />

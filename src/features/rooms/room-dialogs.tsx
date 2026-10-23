@@ -1,156 +1,97 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { useBackend, useTenantMutation, useWorkspace } from '@pg/api-client/react';
+import { useBackend, useProperties, useRooms, useTenantMutation, useWorkspace } from '@pg/api-client/react';
 import { formatINR, paiseToRupeesInput, rupeesToPaise, type RentMode, type Room } from '@pg/shared';
-import { roomBatchSchema, roomSchema, toPaise } from '@pg/validation';
 import { Button } from '@pg/ui-web/ui/button';
 import { Input, MoneyInput, Select, Switch, Textarea } from '@pg/ui-web/ui/form-controls';
-import { Dialog, DialogContent, Segmented } from '@pg/ui-web/ui/overlays';
+import { Dialog, DialogContent } from '@pg/ui-web/ui/overlays';
 import { Field, InlineError } from '@pg/ui-web/common';
 import { PropertySelect } from '@/components/pickers';
 import { useCurrentWorkspace } from '@/app/workspace';
-import { useZodForm } from '@/lib/form';
+import { FloorPicker } from './floors';
+import { AddRoomsModeSwitch, RoomRangeBuilder, type AddRoomsMode, type RangeRoom } from './room-range';
 
-export function AddRoomsDialog({ open, onOpenChange, propertyId: preset }: { open: boolean; onOpenChange: (o: boolean) => void; propertyId?: string }) {
+/** Floor names already used in a property, so the picker offers them as chips. */
+function useKnownFloors(propertyId: string | null) {
+  const { tenantId } = useCurrentWorkspace();
+  const rooms = useRooms(tenantId, propertyId);
+  return [...new Set((rooms.data ?? []).map((r) => r.floor).filter(Boolean) as string[])];
+}
+
+export function AddRoomsDialog({
+  open,
+  onOpenChange,
+  propertyId: preset,
+  floor: presetFloor,
+  mode: presetMode = 'bulk',
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  propertyId?: string;
+  floor?: string;
+  mode?: AddRoomsMode;
+}) {
   const { tenantId, propertyId: selected } = useCurrentWorkspace();
   const { data } = useBackend();
   const workspace = useWorkspace(tenantId);
-  const [propertyId, setPropertyId] = useState<string | null>(preset ?? selected);
-  const [mode, setMode] = useState<'single' | 'batch'>('single');
-  const defaultMode: RentMode = workspace.data?.settings.default_rent_mode ?? 'per_bed';
-
-  const single = useZodForm(roomSchema, {
-    defaultValues: { name: '', floor: '', category: '', rent_mode: defaultMode, rent: '', deposit: '', bed_count: 2 },
-  });
-  const batch = useZodForm(roomBatchSchema, {
-    defaultValues: { prefix: '', start: 101, count: 5, floor: '', category: '', bed_count: 2, rent_mode: defaultMode, rent: '', deposit: '' },
-  });
+  const [chosen, setPropertyId] = useState<string | null>(preset ?? selected);
+  const [mode, setMode] = useState<AddRoomsMode>(presetMode);
+  // With "All properties" selected the dropdown shows the first property, so use that one.
+  const properties = useProperties(tenantId);
+  const propertyId = chosen ?? properties.data?.[0]?.id ?? null;
+  const rooms = useRooms(tenantId, propertyId);
+  const knownFloors = useKnownFloors(propertyId);
 
   useEffect(() => {
     if (open) {
       setPropertyId(preset ?? selected);
-      single.reset({ name: '', floor: '', category: '', rent_mode: defaultMode, rent: '', deposit: '', bed_count: 2 });
-      batch.reset({ prefix: '', start: 101, count: 5, floor: '', category: '', bed_count: 2, rent_mode: defaultMode, rent: '', deposit: '' });
+      setMode(presetMode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const mutation = useTenantMutation(tenantId, (rooms: Parameters<typeof data.createRooms>[1]) => {
+  const mutation = useTenantMutation(tenantId, (list: RangeRoom[]) => {
     if (!propertyId) throw Object.assign(new Error('Choose a property'), { hint: 'validation', message: 'Choose a property' });
-    return data.createRooms(propertyId, rooms);
+    return data.createRooms(propertyId, list);
   });
-
-  const submit = mode === 'single'
-    ? single.handleSubmit((v) =>
-        mutation.mutate(
-          [{ name: v.name.trim(), floor: v.floor || null, category: v.category || null, rent_mode: v.rent_mode, rent_paise: rupeesToPaise(v.rent)!, deposit_paise: toPaise(v.deposit) ?? 0, bed_count: v.bed_count }],
-          { onSuccess: () => { toast.success(`Room ${v.name} added with ${v.bed_count} beds`); onOpenChange(false); } },
-        ),
-      )
-    : batch.handleSubmit((v) =>
-        mutation.mutate(
-          Array.from({ length: v.count }, (_, i) => ({
-            name: `${v.prefix ?? ''}${v.start + i}`,
-            floor: v.floor || null,
-            category: v.category || null,
-            rent_mode: v.rent_mode,
-            rent_paise: rupeesToPaise(v.rent)!,
-            deposit_paise: toPaise(v.deposit) ?? 0,
-            bed_count: v.bed_count,
-          })),
-          { onSuccess: () => { toast.success(`${v.count} rooms added`); onOpenChange(false); } },
-        ),
-      );
-
-  const bv = batch.watch();
-  const preview = mode === 'batch' && Number(bv.count) > 0 ? `${bv.prefix ?? ''}${bv.start} … ${bv.prefix ?? ''}${Number(bv.start) + Number(bv.count) - 1}` : '';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="lg"
-        title="Add rooms"
-        description="Beds are created automatically and labelled A, B, C… You can rename them later."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={submit} loading={mutation.isPending}>
-              {mode === 'single' ? 'Add room' : `Add ${bv.count || ''} rooms`}
-            </Button>
-          </>
+        title={mode === 'single' ? 'Add a room' : 'Add rooms in bulk'}
+        description={
+          mode === 'single'
+            ? 'One room with its beds and rent. Beds are labelled A, B, C… automatically.'
+            : 'Add a whole floor at once: type the first and last room number, the beds in each room and one rent for all of them. Beds are labelled A, B, C… automatically.'
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <Field label="Property" htmlFor="ar-prop" className="w-full sm:w-72">
               <PropertySelect id="ar-prop" tenantId={tenantId} value={propertyId} onChange={setPropertyId} allowAll={false} />
             </Field>
-            <Segmented label="Mode" value={mode} onChange={setMode} options={[{ value: 'single', label: 'One room' }, { value: 'batch', label: 'Numbered range' }]} />
+            <AddRoomsModeSwitch value={mode} onChange={setMode} />
           </div>
-
-          {mode === 'single' ? (
-            <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-3">
-              <Field label="Room name / number" required htmlFor="ar-name" error={single.formState.errors.name?.message}>
-                <Input id="ar-name" autoFocus {...single.register('name')} />
-              </Field>
-              <Field label="Floor" htmlFor="ar-floor">
-                <Input id="ar-floor" {...single.register('floor')} />
-              </Field>
-              <Field label="Type" htmlFor="ar-cat">
-                <Input id="ar-cat" placeholder="e.g. Double sharing AC" {...single.register('category')} />
-              </Field>
-              <Field label="Beds" required htmlFor="ar-beds" error={single.formState.errors.bed_count?.message}>
-                <Input id="ar-beds" inputMode="numeric" {...single.register('bed_count')} />
-              </Field>
-              <Field label="Rent charged" htmlFor="ar-mode">
-                <Select id="ar-mode" {...single.register('rent_mode')}>
-                  <option value="per_bed">Per bed</option>
-                  <option value="per_room">Per room</option>
-                </Select>
-              </Field>
-              <Field label="Monthly rent" required htmlFor="ar-rent" error={single.formState.errors.rent?.message}>
-                <MoneyInput id="ar-rent" {...single.register('rent')} />
-              </Field>
-              <Field label="Security deposit" htmlFor="ar-dep" error={single.formState.errors.deposit?.message}>
-                <MoneyInput id="ar-dep" {...single.register('deposit')} />
-              </Field>
-            </form>
-          ) : (
-            <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-3">
-              <Field label="Prefix" htmlFor="ab-prefix" hint="Optional, e.g. A-">
-                <Input id="ab-prefix" {...batch.register('prefix')} />
-              </Field>
-              <Field label="First number" htmlFor="ab-start" error={batch.formState.errors.start?.message}>
-                <Input id="ab-start" inputMode="numeric" {...batch.register('start')} />
-              </Field>
-              <Field label="How many rooms" htmlFor="ab-count" error={batch.formState.errors.count?.message} hint={preview}>
-                <Input id="ab-count" inputMode="numeric" {...batch.register('count')} />
-              </Field>
-              <Field label="Floor" htmlFor="ab-floor">
-                <Input id="ab-floor" {...batch.register('floor')} />
-              </Field>
-              <Field label="Type" htmlFor="ab-cat">
-                <Input id="ab-cat" {...batch.register('category')} />
-              </Field>
-              <Field label="Beds per room" htmlFor="ab-beds" error={batch.formState.errors.bed_count?.message}>
-                <Input id="ab-beds" inputMode="numeric" {...batch.register('bed_count')} />
-              </Field>
-              <Field label="Rent charged" htmlFor="ab-mode">
-                <Select id="ab-mode" {...batch.register('rent_mode')}>
-                  <option value="per_bed">Per bed</option>
-                  <option value="per_room">Per room</option>
-                </Select>
-              </Field>
-              <Field label="Monthly rent" required htmlFor="ab-rent" error={batch.formState.errors.rent?.message}>
-                <MoneyInput id="ab-rent" {...batch.register('rent')} />
-              </Field>
-              <Field label="Security deposit" htmlFor="ab-dep">
-                <MoneyInput id="ab-dep" {...batch.register('deposit')} />
-              </Field>
-            </form>
-          )}
+          {/* Remount per open/property so the form starts clean with the right floor. */}
+          <RoomRangeBuilder
+            key={`${open}-${propertyId}-${presetFloor ?? ''}-${mode}`}
+            single={mode === 'single'}
+            idPrefix="ar"
+            knownFloors={knownFloors}
+            existingNames={(rooms.data ?? []).map((r) => r.name)}
+            defaultFloor={presetFloor ?? ''}
+            defaultRentMode={workspace.data?.settings.default_rent_mode ?? 'per_bed'}
+            busy={mutation.isPending}
+            submitLabel={(n) => (n > 1 ? `Add ${n} rooms` : 'Add room')}
+            onSubmit={(list) =>
+              mutation.mutateAsync(list).then(() => {
+                const beds = list.reduce((s, r) => s + r.bed_count, 0);
+                toast.success(list.length === 1 ? `Room ${list[0]!.name} added with ${beds} ${beds === 1 ? 'bed' : 'beds'}` : `${list.length} rooms added (${list[0]!.name} to ${list.at(-1)!.name}), ${beds} beds`);
+                onOpenChange(false);
+              })
+            }
+          />
           <InlineError error={mutation.error} />
         </div>
       </DialogContent>
@@ -175,6 +116,7 @@ export function EditRoomDialog({ open, onOpenChange, room }: { open: boolean; on
         is_active: room.is_active,
       });
   }, [open, room]);
+  const knownFloors = useKnownFloors(room.property_id);
   const mutation = useTenantMutation(tenantId, () => {
     const rent = rupeesToPaise(state.rent);
     if (rent === null || rent < 0) throw Object.assign(new Error('Enter a valid rent'), { hint: 'validation', message: 'Enter a valid rent' });
@@ -199,18 +141,19 @@ export function EditRoomDialog({ open, onOpenChange, room }: { open: boolean; on
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button loading={mutation.isPending} onClick={() => mutation.mutate(undefined, { onSuccess: () => { toast.success('Room updated'); onOpenChange(false); } })}>
+            {/* mutateAsync: a floor change remounts the room card, which drops mutate()'s callbacks. */}
+            <Button loading={mutation.isPending} onClick={() => mutation.mutateAsync().then(() => { toast.success('Room updated'); onOpenChange(false); }).catch(() => undefined)}>
               Save changes
             </Button>
           </>
         }
       >
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Floor" htmlFor="er-floor" className="sm:col-span-2">
+            <FloorPicker id="er-floor" value={state.floor} known={knownFloors} onChange={(floor) => setState({ ...state, floor })} />
+          </Field>
           <Field label="Room name" htmlFor="er-name">
             <Input id="er-name" value={state.name} onChange={(e) => setState({ ...state, name: e.target.value })} />
-          </Field>
-          <Field label="Floor" htmlFor="er-floor">
-            <Input id="er-floor" value={state.floor} onChange={(e) => setState({ ...state, floor: e.target.value })} />
           </Field>
           <Field label="Type" htmlFor="er-cat">
             <Input id="er-cat" value={state.category} onChange={(e) => setState({ ...state, category: e.target.value })} />

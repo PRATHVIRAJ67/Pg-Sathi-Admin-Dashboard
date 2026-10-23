@@ -27,10 +27,12 @@ import { ConfirmDialog, EmptyState, ErrorState, Field, FormSection, InlineError,
 import { PropertySelect } from '@/components/pickers';
 import { useCurrentWorkspace } from '@/app/workspace';
 import { useZodForm } from '@/lib/form';
+import { OnlinePaymentsSettings } from './payments-settings';
 
 const TABS = [
   { id: 'business', label: 'Business', owner: true },
   { id: 'billing', label: 'Rent & billing', owner: true },
+  { id: 'payments', label: 'Online payments', owner: true },
   { id: 'charges', label: 'Charges', owner: false },
   { id: 'lists', label: 'Categories & facilities', owner: true },
   { id: 'team', label: 'Team', owner: false },
@@ -63,6 +65,7 @@ export function SettingsPage() {
         </TabsList>
         <TabsContent value="business">{current === 'business' && <BusinessSettings />}</TabsContent>
         <TabsContent value="billing">{current === 'billing' && <BillingSettings />}</TabsContent>
+        <TabsContent value="payments">{current === 'payments' && <OnlinePaymentsSettings />}</TabsContent>
         <TabsContent value="charges">{current === 'charges' && <ChargesSettings />}</TabsContent>
         <TabsContent value="lists">{current === 'lists' && <ListSettings />}</TabsContent>
         <TabsContent value="team">{current === 'team' && <TeamSettings />}</TabsContent>
@@ -293,7 +296,7 @@ function BillingSettings() {
               ))}
             </div>
             {e.payment_methods && <p className="text-xs text-danger-600">{e.payment_methods.message}</p>}
-            <Field label="UPI ID" htmlFor="bl-upi" hint="Printed on bills so residents know where to pay.">
+            <Field label="UPI ID" htmlFor="bl-upi" hint="Printed on bills as a QR code. Razorpay and the QR are set up under Online payments.">
               <Input id="bl-upi" {...register('upi_id')} />
             </Field>
           </FormSection>

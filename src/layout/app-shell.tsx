@@ -26,7 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { ROLE_LABELS, formatINR, relativeDays, type Permission } from '@pg/shared';
-import { useBackend, useDashboard, useProperties } from '@pg/api-client/react';
+import { useBackend, useDashboard, useJoinRequests, useProperties } from '@pg/api-client/react';
 import { cn } from '@pg/ui-web/utils';
 import { Button } from '@pg/ui-web/ui/button';
 import { Select } from '@pg/ui-web/ui/form-controls';
@@ -225,10 +225,16 @@ function QuickActions() {
 
 /** Live "needs attention" list derived from current records (no scheduled notifications exist). */
 function AttentionPanel() {
-  const { tenantId, propertyId } = useCurrentWorkspace();
+  const { tenantId, propertyId, can } = useCurrentWorkspace();
   const dash = useDashboard(tenantId, propertyId);
+  const joins = useJoinRequests(tenantId, 'pending', { enabled: can('residents.write') });
   const d = dash.data;
   const items: { title: string; detail: string; to: string }[] = [];
+  // New people who scanned the join QR come first: they are waiting on you.
+  for (const r of (joins.data ?? []).slice(0, 5)) {
+    items.push({ title: `${r.full_name} wants to join`, detail: [r.property_name, r.room_preference, r.phone].filter(Boolean).join(' · '), to: '/app/residents/requests' });
+  }
+  if ((joins.data?.length ?? 0) > 5) items.push({ title: `${joins.data!.length - 5} more join requests`, detail: 'Review them all', to: '/app/residents/requests' });
   if (d?.finance) {
     if (d.finance.overdue_paise > 0) items.push({ title: `${formatINR(d.finance.overdue_paise)} overdue`, detail: 'Rent past its due date', to: '/app/rent?status=overdue' });
     if (d.finance.stays_without_invoice > 0)
