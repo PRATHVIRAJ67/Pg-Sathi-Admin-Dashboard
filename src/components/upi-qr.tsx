@@ -24,7 +24,7 @@ export function UpiQr({ value, size = 168, className, label }: { value: string; 
   const [svg, setSvg] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    QRCode.toString(value, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#14213D', light: '#FFFFFF' } })
+    QRCode.toString(value, { type: 'svg', margin: 4, errorCorrectionLevel: 'M', color: { dark: '#14213D', light: '#FFFFFF' } })
       .then((s) => live && setSvg(s))
       .catch(() => live && setSvg(null));
     return () => {
