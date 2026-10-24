@@ -204,9 +204,17 @@ export function SignUpPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [error, setError] = useState<unknown>(null);
-  const form = useZodForm(signUpSchema, { defaultValues: { fullName: '', email: '', password: '' } });
+  // Invite links from the super-admin console: /sign-up?email=…&invited=1
+  const invitedEmail = params.get('email')?.trim() ?? '';
+  const invited = params.get('invited') === '1' && !!invitedEmail;
+  const form = useZodForm(signUpSchema, { defaultValues: { fullName: '', email: invitedEmail, password: '' } });
   const { register, handleSubmit, formState } = form;
   const next = params.get('next');
+  const { data } = useBackend();
+  const [signupOpen, setSignupOpen] = useState(true);
+  useEffect(() => {
+    data.signupStatus().then((s) => setSignupOpen(s.open), () => undefined);
+  }, [data]);
 
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
@@ -222,8 +230,8 @@ export function SignUpPage() {
 
   return (
     <AuthLayout
-      title="Create your account"
-      subtitle="Start managing your PG in a few minutes. No credit card required."
+      title={invited ? 'You’re invited to PG Sathi' : 'Create your account'}
+      subtitle={invited ? 'Create your login with the invited email, then set up your PG in a few minutes.' : 'Start managing your PG in a few minutes. No credit card required.'}
       footer={
         <>
           Already have an account?{' '}
@@ -233,12 +241,17 @@ export function SignUpPage() {
         </>
       }
     >
+      {!signupOpen && !invited && (
+        <div className="mb-5 rounded-lg border border-warning-100 bg-warning-50 p-3 text-[13px] text-warning-700">
+          PG Sathi is invite-only right now. You can create a login, but to set up a business you need an invitation. Already invited? Use the link from your invitation.
+        </div>
+      )}
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <Field label="Your name" htmlFor="fullName" error={formState.errors.fullName?.message}>
           <Input id="fullName" autoComplete="name" autoFocus aria-invalid={!!formState.errors.fullName} {...register('fullName')} />
         </Field>
         <Field label="Work email" htmlFor="email" error={formState.errors.email?.message}>
-          <Input id="email" type="email" autoComplete="email" aria-invalid={!!formState.errors.email} {...register('email')} />
+          <Input id="email" type="email" autoComplete="email" readOnly={invited} aria-invalid={!!formState.errors.email} {...register('email')} />
         </Field>
         <Field label="Password" htmlFor="password" error={formState.errors.password?.message} hint="At least 8 characters.">
           <Input id="password" type="password" autoComplete="new-password" aria-invalid={!!formState.errors.password} {...register('password')} />
@@ -247,7 +260,7 @@ export function SignUpPage() {
         <Button type="submit" className="w-full" size="lg" loading={formState.isSubmitting}>
           Create account
         </Button>
-        <p className="text-center text-xs leading-relaxed text-gray-500">We’ll send a link to verify your email before your workspace is created.</p>
+        <p className="text-center text-xs leading-relaxed text-gray-500">We’ll email you a 6-digit code to verify your email before your workspace is created.</p>
       </form>
     </AuthLayout>
   );

@@ -191,7 +191,20 @@ function BusinessStep({ onDone }: { onDone: (tenantId: string) => Promise<void> 
       state: '',
     },
   });
-  const { register, handleSubmit, formState } = form;
+  const { register, handleSubmit, formState, getValues, setValue } = form;
+  // Invited by the platform: prefill what the invitation already says.
+  useEffect(() => {
+    data.myOwnerInvite().then(
+      (inv) => {
+        if (!inv) return;
+        if (inv.business_name && !getValues('businessName')) setValue('businessName', inv.business_name);
+        if (inv.owner_name && !getValues('ownerName')) setValue('ownerName', inv.owner_name);
+        if (inv.phone && !getValues('contactPhone')) setValue('contactPhone', inv.phone);
+      },
+      () => undefined,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const onSubmit = handleSubmit(async (values) => {
     setError(null);
