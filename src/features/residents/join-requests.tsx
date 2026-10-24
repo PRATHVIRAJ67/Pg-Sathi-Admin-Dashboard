@@ -271,6 +271,9 @@ function RequestCard({ request: r }: { request: JoinRequest }) {
             {r.room_preference && <Badge tone="info">{r.room_preference}</Badge>}
           </div>
         )}
+        {r.from_app && r.status === 'pending' && (
+          <p className="rounded-md bg-success-50 px-3 py-2 text-[13px] text-success-700">Sent from the PG Sathi app. Approving also gives them app access with their own login.</p>
+        )}
         {r.existing_resident && (
           <p className="rounded-md bg-warning-50 px-3 py-2 text-[13px] text-warning-700">
             Same phone as current resident{' '}
@@ -344,7 +347,7 @@ function ApproveDialog({ open, onOpenChange, request }: { open: boolean; onOpenC
       <DialogContent
         size="sm"
         title={`Approve ${request.full_name}?`}
-        description="They are added as a resident with the details they filled in. Next you choose their bed, rent and deposit."
+        description={`They are added as a resident with the details they filled in${request.from_app ? ', and their PG Sathi app login gets access straight away' : ''}. Next you choose their bed, rent and deposit.`}
         footer={
           <>
             <Button variant="secondary" onClick={() => onOpenChange(false)}>

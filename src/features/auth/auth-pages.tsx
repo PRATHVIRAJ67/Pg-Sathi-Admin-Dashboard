@@ -220,6 +220,10 @@ export function SignUpPage() {
     setError(null);
     try {
       const result = await auth.signUp({ email: values.email, password: values.password, fullName: values.fullName, redirectTo: callbackUrl() });
+      if (result.alreadyRegistered) {
+        setError({ message: 'An account with this email already exists. Sign in instead, or use “Forgot password?”.', hint: 'duplicate' });
+        return;
+      }
       if (result.needsVerification) {
         navigate(`/verify-email?email=${encodeURIComponent(values.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`);
       }
