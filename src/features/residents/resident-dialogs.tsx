@@ -17,7 +17,7 @@ import {
 } from '@pg/shared';
 import { assignBedSchema, blankToNull, changeRentSchema, moveOutSchema, residentSchema, toPaise } from '@pg/validation';
 import { Button } from '@pg/ui-web/ui/button';
-import { Input, MoneyInput, Select, Textarea } from '@pg/ui-web/ui/form-controls';
+import { Checkbox, Input, MoneyInput, Select, Textarea } from '@pg/ui-web/ui/form-controls';
 import { Dialog, DialogContent } from '@pg/ui-web/ui/overlays';
 import { Field, InlineError } from '@pg/ui-web/common';
 import { BedPicker, ResidentPicker } from '@/components/pickers';
@@ -29,8 +29,11 @@ import { useZodForm } from '@/lib/form';
 // ---------------------------------------------------------------------------
 export function ResidentFormDialog({ open, onOpenChange, resident }: { open: boolean; onOpenChange: (o: boolean) => void; resident?: ResidentDetail }) {
   const { tenantId } = useCurrentWorkspace();
-  const { data } = useBackend();
+  const { data, residentAccess } = useBackend();
   const navigate = useNavigate();
+  // New residents with an email get their app login by email straight away.
+  const canEmailLogin = !resident && !!residentAccess?.available;
+  const [emailLogin, setEmailLogin] = useState(true);
   const empty = {
     full_name: '',
     phone: '',
@@ -70,6 +73,7 @@ export function ResidentFormDialog({ open, onOpenChange, resident }: { open: boo
         notes: resident.notes ?? '',
       });
     } else reset(empty);
+    setEmailLogin(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, resident]);
 
@@ -90,15 +94,27 @@ export function ResidentFormDialog({ open, onOpenChange, resident }: { open: boo
       emergency_contact_relation: blankToNull(values.emergency_contact_relation),
       notes: blankToNull(values.notes),
     };
-    return resident ? data.updateResident(resident.id, payload) : data.createResident(tenantId, payload);
+    if (resident) return { id: await data.updateResident(resident.id, payload), login: null };
+    const id = await data.createResident(tenantId, payload);
+    if (!canEmailLogin || !emailLogin || !payload.email) return { id, login: null };
+    // The resident is saved either way; a login problem is reported, not thrown.
+    try {
+      const login = await residentAccess!.create(id, payload.email, generateResidentPassword(), { sendEmail: true });
+      return { id, login: { ok: true as const, ...login } };
+    } catch (err) {
+      return { id, login: { ok: false as const, message: err instanceof Error ? err.message : 'Could not create the app login.' } };
+    }
   });
 
   const onSubmit = handleSubmit((values) =>
     mutation.mutate(values as typeof empty, {
-      onSuccess: (id) => {
+      onSuccess: ({ id, login }) => {
         toast.success(resident ? 'Resident updated' : 'Resident added', {
           action: resident ? undefined : { label: 'Assign a bed', onClick: () => navigate(`/app/residents/${id}?assign=1`) },
         });
+        if (login?.ok && login.emailed) toast.success(`App login emailed to ${login.email}`);
+        else if (login?.ok) toast.warning(`App login created, but the email wasn’t sent: ${login.email_error ?? 'unknown error'} Use “Reset app password” on their page to share it.`);
+        else if (login) toast.error(`Resident added, but no app login: ${login.message}`);
         onOpenChange(false);
         if (!resident) navigate(`/app/residents/${id}`);
       },
@@ -111,9 +127,15 @@ export function ResidentFormDialog({ open, onOpenChange, resident }: { open: boo
       <DialogContent
         size="lg"
         title={resident ? 'Edit resident' : 'Add a resident'}
-        description={resident ? undefined : 'Only the name is required. Residents don’t need an app account — you can invite them later.'}
+        description={resident ? undefined : 'Only the name is required. Add their email to send them a PG Sathi app login.'}
         footer={
           <>
+            {canEmailLogin && (
+              <label className="mr-auto flex items-center gap-2.5 text-[13px] text-gray-700">
+                <Checkbox checked={emailLogin} onCheckedChange={(c) => setEmailLogin(c === true)} />
+                Email them an app login (if an email is given)
+              </label>
+            )}
             <Button variant="secondary" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -131,7 +153,7 @@ export function ResidentFormDialog({ open, onOpenChange, resident }: { open: boo
             <Field label="Phone" htmlFor="rf-phone" error={e.phone?.message}>
               <Input id="rf-phone" type="tel" aria-invalid={!!e.phone} {...register('phone')} />
             </Field>
-            <Field label="Email" htmlFor="rf-email" error={e.email?.message}>
+            <Field label="Email" htmlFor="rf-email" error={e.email?.message} hint={canEmailLogin ? 'Used as their PG Sathi app login.' : undefined}>
               <Input id="rf-email" type="email" aria-invalid={!!e.email} {...register('email')} />
             </Field>
             <Field label="Gender" htmlFor="rf-gender">
@@ -504,7 +526,8 @@ export function ResidentAppLoginDialog({
   const { residentAccess } = useBackend();
   const [email, setEmail] = useState(resident.email ?? '');
   const [password, setPassword] = useState(generateResidentPassword);
-  const [done, setDone] = useState<{ email: string; password: string } | null>(null);
+  const [done, setDone] = useState<{ email: string; password: string; emailed?: boolean; email_error?: string | null } | null>(null);
+  const [sendEmail, setSendEmail] = useState(true);
   const loginEmail = resident.email ?? email;
 
   const mutation = useTenantMutation(tenantId, async () => {
@@ -512,13 +535,13 @@ export function ResidentAppLoginDialog({
     if (mode === 'revoke') return residentAccess.revoke(resident.id);
     if (password.trim().length < 8) throw new AppError('validation', 'Password must be at least 8 characters.');
     if (mode === 'reset') {
-      await residentAccess.resetPassword(resident.id, password.trim());
-      setDone({ email: loginEmail, password: password.trim() });
+      const res = await residentAccess.resetPassword(resident.id, password.trim(), { sendEmail });
+      setDone({ email: res?.email || loginEmail, password: password.trim(), emailed: res?.emailed, email_error: res?.email_error });
       return;
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) throw new AppError('validation', 'Enter a valid email address.');
-    const res = await residentAccess.create(resident.id, email.trim(), password.trim());
-    setDone({ email: res.email, password: password.trim() });
+    const res = await residentAccess.create(resident.id, email.trim(), password.trim(), { sendEmail });
+    setDone({ email: res.email, password: password.trim(), emailed: res.emailed, email_error: res.email_error });
   });
 
   useEffect(() => {
@@ -526,6 +549,7 @@ export function ResidentAppLoginDialog({
       setDone(null);
       setEmail(resident.email ?? '');
       setPassword(generateResidentPassword());
+      setSendEmail(true);
       mutation.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -584,6 +608,11 @@ export function ResidentAppLoginDialog({
             <p className="flex items-center gap-2 text-[13px] font-medium text-success-700">
               <CheckCircle2 className="size-4" /> {mode === 'create' ? 'Login created' : 'Password updated'}
             </p>
+            {done.emailed ? (
+              <p className="rounded-md bg-success-50 px-3 py-2 text-[13px] text-success-700">Emailed to {done.email}. They’ll be asked to choose their own password on first sign-in.</p>
+            ) : sendEmail ? (
+              <p className="rounded-md bg-warning-50 px-3 py-2 text-[13px] text-warning-700">The email wasn’t sent ({done.email_error ?? 'unknown error'}). Share the details below instead.</p>
+            ) : null}
             <dl className="space-y-1.5 rounded-lg border border-gray-200 bg-gray-25 p-3 text-[13px]">
               <div className="flex gap-3">
                 <dt className="w-20 text-gray-500">Email</dt>
@@ -626,7 +655,7 @@ export function ResidentAppLoginDialog({
                 Login email: <span className="font-medium text-gray-900">{loginEmail || '—'}</span>
               </p>
             )}
-            <Field label="Password" htmlFor="al-pass" hint="A strong password is generated for you. You can change it." required>
+            <Field label="Temporary password" htmlFor="al-pass" hint="They choose their own password the first time they sign in." required>
               <div className="flex gap-2">
                 <Input id="al-pass" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
                 <Button variant="secondary" size="icon" aria-label="Generate another password" onClick={() => setPassword(generateResidentPassword())}>
@@ -634,6 +663,10 @@ export function ResidentAppLoginDialog({
                 </Button>
               </div>
             </Field>
+            <label className="flex items-center gap-2.5 text-[13px] text-gray-700">
+              <Checkbox checked={sendEmail} onCheckedChange={(c) => setSendEmail(c === true)} />
+              Email the login details to {mode === 'create' ? 'them' : loginEmail || 'them'}
+            </label>
             <InlineError error={mutation.error} />
           </div>
         )}

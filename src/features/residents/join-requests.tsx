@@ -17,6 +17,9 @@ import { useCurrentWorkspace } from '@/app/workspace';
 
 export const joinUrl = (code: string) => `${window.location.origin}/join/${code}`;
 
+/** "ad902c3b8d2b40" → "AD90 2C3B 8D2B 40": easy to read out and type (the app ignores spaces and case). */
+export const formatJoinCode = (code: string) => code.toUpperCase().replace(/(.{4})(?=.)/g, '$1 ');
+
 // ---------------------------------------------------------------------------
 // Join QR (owner creates and prints it)
 // ---------------------------------------------------------------------------
@@ -34,6 +37,7 @@ export function JoinQrDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const regenerate = useTenantMutation(tenantId, (l: JoinLink) => data.regenerateJoinLink(l.id));
   const [confirmNew, setConfirmNew] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   useEffect(() => {
     if (open) setPropertyId(selected);
@@ -86,6 +90,22 @@ export function JoinQrDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                   </Badge>
                   <span className="text-xs text-gray-500">{link.requests} requests so far</span>
                 </div>
+                <div className="rounded-xl border border-accent-200 bg-accent-50 p-3.5">
+                  <p className="text-xs font-medium text-accent-800">Join code</p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="font-mono text-[22px] font-bold tracking-[0.06em] text-navy-900" aria-label="Join code">
+                      {formatJoinCode(link.code)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void navigator.clipboard.writeText(link.code).then(() => { setCodeCopied(true); setTimeout(() => setCodeCopied(false), 1500); })}
+                    >
+                      {codeCopied ? <Check /> : <Copy />} {codeCopied ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-600">Can’t scan? In the PG Sathi app: Join a PG → enter this code.</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <Input readOnly value={url} className="font-mono text-xs" aria-label="Join link" onFocus={(e) => e.target.select()} />
                   <Button
@@ -102,7 +122,7 @@ export function JoinQrDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                     <Download /> Download QR
                   </Button>
                   <Button variant="secondary" asChild>
-                    <a href={`https://wa.me/?text=${encodeURIComponent(`Fill in your details to join ${label}: ${url}`)}`} target="_blank" rel="noreferrer">
+                    <a href={`https://wa.me/?text=${encodeURIComponent(`Join ${label} on PG Sathi: open the PG Sathi app, tap “Join a PG” and enter code ${formatJoinCode(link.code)} (or open ${url})`)}`} target="_blank" rel="noreferrer">
                       <MessageCircle /> Share on WhatsApp
                     </a>
                   </Button>
