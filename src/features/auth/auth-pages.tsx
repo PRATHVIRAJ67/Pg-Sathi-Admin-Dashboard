@@ -260,6 +260,9 @@ export function VerifyEmailPage() {
   const [params] = useSearchParams();
   const email = params.get('email') ?? '';
   const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     if (state.status === 'signed_in' && state.session.emailConfirmed) navigate(params.get('next') ?? '/app', { replace: true });
@@ -270,7 +273,7 @@ export function VerifyEmailPage() {
       title="Verify your email"
       subtitle={
         <>
-          We sent a confirmation link to <strong className="font-medium text-gray-900">{email || 'your inbox'}</strong>. Open it on this device to continue.
+          We sent a 6-digit code to <strong className="font-medium text-gray-900">{email || 'your inbox'}</strong>. Enter it below to continue.
         </>
       }
       footer={
@@ -279,6 +282,33 @@ export function VerifyEmailPage() {
         </Link>
       }
     >
+      {email && (
+        <form
+          className="mb-5 space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setVerifying(true);
+            setError(null);
+            try {
+              await auth.verifyEmailOtp(email, code.replace(/\s/g, ''), 'signup');
+              toast.success('Email verified');
+              navigate(params.get('next') ?? '/app', { replace: true });
+            } catch (err) {
+              setError(err);
+            } finally {
+              setVerifying(false);
+            }
+          }}
+        >
+          <Field label="Code from the email" htmlFor="verify-code">
+            <Input id="verify-code" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={(e) => setCode(e.target.value)} className="tabular tracking-[0.3em]" maxLength={10} />
+          </Field>
+          <InlineError error={error} />
+          <Button type="submit" className="w-full" size="lg" loading={verifying} disabled={code.replace(/\s/g, '').length < 6}>
+            Verify and continue
+          </Button>
+        </form>
+      )}
       <div className="rounded-lg border border-gray-200 bg-white p-4 text-[13px] text-gray-600 shadow-xs">
         <div className="flex gap-3">
           <Mail className="mt-0.5 size-5 shrink-0 text-accent-600" aria-hidden />
@@ -336,16 +366,32 @@ export function AuthCallbackPage() {
   );
 }
 
+/**
+ * Password reset by 6-digit code. Codes instead of links because email link
+ * tracking (e.g. Brevo) can open one-time links before the person does.
+ */
 export function ForgotPasswordPage() {
   const { auth } = useBackend();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const validPassword = passwordField.safeParse(password);
   return (
     <AuthLayout
-      title="Reset your password"
-      subtitle={sent ? 'If an account exists for that email, a reset link is on its way.' : 'Enter your email and we’ll send a reset link.'}
+      title={sent ? 'Enter the code and a new password' : 'Reset your password'}
+      subtitle={
+        sent ? (
+          <>
+            If an account exists for <strong className="font-medium text-gray-900">{email}</strong>, we emailed it a 6-digit code.
+          </>
+        ) : (
+          'Enter your email and we’ll send you a 6-digit code.'
+        )
+      }
       footer={
         <Link to="/sign-in" className="font-medium text-accent-700 hover:underline">
           Back to sign in
@@ -353,9 +399,51 @@ export function ForgotPasswordPage() {
       }
     >
       {sent ? (
-        <div className="flex items-center gap-2 rounded-lg border border-success-100 bg-success-50 p-3 text-[13px] text-success-700">
-          <CheckCircle2 className="size-4" aria-hidden /> Check your inbox.
-        </div>
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!validPassword.success) return;
+            setBusy(true);
+            setError(null);
+            try {
+              await auth.verifyEmailOtp(email.trim(), code.replace(/\s/g, ''), 'recovery');
+              await auth.updatePassword(password);
+              toast.success('Password updated. You’re signed in.');
+              navigate('/app', { replace: true });
+            } catch (err) {
+              setError(err);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Field label="Code from the email" htmlFor="reset-code">
+            <Input id="reset-code" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={(e) => setCode(e.target.value)} className="tabular tracking-[0.3em]" maxLength={10} />
+          </Field>
+          <Field label="New password" htmlFor="reset-new-password" hint="At least 8 characters." error={password && !validPassword.success ? validPassword.error.issues[0]?.message : undefined}>
+            <Input id="reset-new-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          <InlineError error={error} />
+          <Button type="submit" className="w-full" size="lg" loading={busy} disabled={code.replace(/\s/g, '').length < 6 || !validPassword.success}>
+            Set new password
+          </Button>
+          <button
+            type="button"
+            className="w-full text-center text-[13px] font-medium text-accent-700 hover:underline"
+            onClick={async () => {
+              setError(null);
+              try {
+                await auth.requestPasswordReset(email.trim(), `${window.location.origin}/reset-password`);
+                toast.success('New code sent. Use the newest email.');
+              } catch (err) {
+                setError(err);
+              }
+            }}
+          >
+            Send a new code
+          </button>
+        </form>
       ) : (
         <form
           className="space-y-4"
@@ -378,7 +466,7 @@ export function ForgotPasswordPage() {
           </Field>
           <InlineError error={error} />
           <Button type="submit" className="w-full" size="lg" loading={busy}>
-            Send reset link
+            Send code
           </Button>
         </form>
       )}
