@@ -40,7 +40,7 @@ function UpiQrCard() {
   const save = useTenantMutation(tenantId, () => data.updateSettings(tenantId, { upi_id: upi.trim() || null }));
 
   const download = async () => {
-    const url = await QRCode.toDataURL(upiPayUrl({ upiId: saved, payeeName: name }), { width: 1024, margin: 2, color: { dark: '#14213D', light: '#FFFFFF' } });
+    const url = await QRCode.toDataURL(upiPayUrl({ upiId: saved, payeeName: name }), { width: 1024, margin: 4, color: { dark: '#14213D', light: '#FFFFFF' } });
     const a = document.createElement('a');
     a.href = url;
     a.download = `${name.replace(/[^\w-]+/g, '-')}-UPI-QR.png`;

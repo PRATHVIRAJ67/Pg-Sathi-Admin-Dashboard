@@ -43,7 +43,7 @@ export function JoinQrDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const url = link ? joinUrl(link.code) : '';
 
   const download = async () => {
-    const png = await QRCode.toDataURL(url, { width: 1024, margin: 2, color: { dark: '#14213D', light: '#FFFFFF' } });
+    const png = await QRCode.toDataURL(url, { width: 1024, margin: 4, color: { dark: '#14213D', light: '#FFFFFF' } });
     const a = document.createElement('a');
     a.href = png;
     a.download = `Join-${label.replace(/[^\w-]+/g, '-')}-QR.png`;
