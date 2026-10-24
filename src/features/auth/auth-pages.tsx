@@ -394,6 +394,38 @@ export function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const valid = passwordField.safeParse(password);
+  // Supabase sends people back with ?error=…&error_code=otp_expired (also in the #hash)
+  // when the link was already used, has expired, or was replaced by a newer email.
+  const linkError = (() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    return params.get('error_code') ?? hash.get('error_code') ?? params.get('error') ?? hash.get('error');
+  })();
+
+  if (state.status !== 'signed_in' && state.status !== 'loading') {
+    return (
+      <AuthLayout
+        title={linkError ? 'This reset link has expired' : 'Choose a new password'}
+        subtitle={
+          linkError
+            ? 'Reset links work once and only for a short time. A newer email (another reset or a sign-in code) also cancels older links.'
+            : 'Open the reset link from your email to continue.'
+        }
+        footer={
+          <Link to="/sign-in" className="font-medium text-accent-700 hover:underline">
+            Back to sign in
+          </Link>
+        }
+      >
+        <Button asChild className="w-full" size="lg">
+          <Link to="/forgot-password">
+            <Mail /> Send me a new reset link
+          </Link>
+        </Button>
+        <p className="mt-3 text-center text-xs text-gray-500">Then open only the newest email and click its button straight away.</p>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout title="Choose a new password" subtitle={state.status === 'signed_in' ? undefined : 'Open the reset link from your email to continue.'}>
