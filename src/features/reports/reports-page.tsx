@@ -1,18 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import { toast } from 'sonner';
 import { BarChart3, Download, Printer } from 'lucide-react';
-import { useFinancialReport, useProperties } from '@pg/api-client/react';
-import { PAYMENT_METHOD_LABELS, addMonthsISO, formatDate, formatINR, formatMonth, occupancyRate, startOfMonthISO, todayISO } from '@pg/shared';
+import { useBackend, useFinancialReport, usePayments, useProperties } from '@pg/api-client/react';
+import { PAYMENT_METHOD_LABELS, addMonthsISO, endOfMonthISO, formatDate, formatINR, formatMonth, occupancyRate, startOfMonthISO, todayISO } from '@pg/shared';
 import { Button } from '@pg/ui-web/ui/button';
 import { Select } from '@pg/ui-web/ui/form-controls';
 import { Card, CardBody, CardHeader, Progress } from '@pg/ui-web/ui/surfaces';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@pg/ui-web/ui/overlays';
 import { Table, TBody, TD, TH, THead, TR } from '@pg/ui-web/ui/table';
-import { EmptyState, ErrorState, Money, PageHeader, StatCard, TableSkeleton } from '@pg/ui-web/common';
+import { EmptyState, ErrorState, Money, PageHeader, Pagination, StatCard, TableSkeleton } from '@pg/ui-web/common';
 import { MonthlyMoneyChart, ShareBars } from '@pg/ui-web/charts';
 import { MonthInput } from '@/components/pickers';
 import { useCurrentWorkspace } from '@/app/workspace';
 import { csvRupees, downloadCsv } from '@pg/ui-web/utils';
+
+const RECEIVED_PAGE = 50;
+const EXPORT_BATCH = 500;
 
 type Preset = 'this' | 'last3' | 'last6' | 'fy' | 'custom';
 
@@ -44,7 +48,60 @@ export function ReportsPage() {
   const range = useMemo(() => presetRange(preset, custom), [preset, custom]);
   const report = useFinancialReport(tenantId, { from: range.from, to: range.to, propertyId }, { enabled: range.from <= range.to });
   const r = report.data;
+  const { data: backend } = useBackend();
+  const [receivedOffset, setReceivedOffset] = useState(0);
+  const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null);
+  const receivedFilter = { from: range.from, to: endOfMonthISO(range.to), status: 'live' as const, property_id: propertyId };
+  useEffect(() => setReceivedOffset(0), [range.from, range.to, propertyId]);
+  // The table loads one page at a time from the server.
+  const received = usePayments(tenantId, { ...receivedFilter, limit: RECEIVED_PAGE, offset: receivedOffset }, { enabled: range.from <= range.to });
+  const propertyName = propertyId ? (properties.data?.find((p) => p.id === propertyId)?.name ?? '') : '';
   const fileBase = `${workspace.name.replace(/[^\w]+/g, '-').toLowerCase()}-${range.from.slice(0, 7)}-to-${range.to.slice(0, 7)}`;
+
+  /** Exports pull every matching payment from the server in batches, so large periods never load into the table. */
+  const fetchAllReceived = async () => {
+    const all = [];
+    for (let offset = 0; ; offset += EXPORT_BATCH) {
+      const page = await backend.listPayments(tenantId, { ...receivedFilter, limit: EXPORT_BATCH, offset });
+      all.push(...page.rows);
+      if (page.rows.length < EXPORT_BATCH || all.length >= page.total) break;
+    }
+    return all;
+  };
+  const viaLabel = (source: string) => (source === 'gateway' ? 'Razorpay' : 'Recorded');
+  const exportReceived = async (kind: 'pdf' | 'csv') => {
+    setExporting(kind);
+    try {
+      const rows = await fetchAllReceived();
+      const head = ['Date', 'Resident', 'Property', 'Method', 'Via', 'Reference', 'Amount (INR)'];
+      const body = rows.map((p) => [formatDate(p.paid_on), p.resident_name, p.property_name ?? '', PAYMENT_METHOD_LABELS[p.method], viaLabel(p.source), p.reference ?? '', csvRupees(p.amount_paise)]);
+      if (kind === 'csv') {
+        downloadCsv(`${fileBase}-payments-received.csv`, head, body);
+        return;
+      }
+      // Loaded on demand so the PDF libraries stay out of the main bundle.
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF();
+      doc.setFontSize(14);
+      doc.text(`Payments received${propertyName ? ` - ${propertyName}` : ''}`, 14, 16);
+      doc.setFontSize(10);
+      doc.text(`${workspace.name} | ${formatMonth(range.from)} - ${formatMonth(range.to)} | ${rows.length} payments`, 14, 23);
+      autoTable(doc, {
+        startY: 28,
+        head: [head],
+        body,
+        foot: [['', '', '', '', '', 'Total', csvRupees(rows.reduce((t, p) => t + p.amount_paise, 0))]],
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [20, 33, 61] },
+        footStyles: { fillColor: [240, 240, 240], textColor: 20 },
+      });
+      doc.save(`${fileBase}-payments-received.pdf`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not export payments');
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <div>
@@ -87,6 +144,7 @@ export function ReportsPage() {
           <Tabs defaultValue="collection">
             <TabsList className="mb-4 print:hidden">
               <TabsTrigger value="collection">Monthly collection</TabsTrigger>
+              <TabsTrigger value="received">Payments received</TabsTrigger>
               <TabsTrigger value="outstanding">Outstanding rent</TabsTrigger>
               <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
               <TabsTrigger value="expenses">Expenses</TabsTrigger>
@@ -141,6 +199,68 @@ export function ReportsPage() {
                   </CardBody>
                 </Card>
               )}
+            </TabsContent>
+
+            <TabsContent value="received">
+              <Card>
+                <CardHeader
+                  title="Payments received"
+                  description="Every payment in the period: Razorpay, UPI/QR, cash and others"
+                  action={
+                    received.data && received.data.rows.length > 0 && (
+                      <div className="flex gap-2">
+                        <Button variant="secondary" size="sm" loading={exporting === 'csv'} disabled={!!exporting} onClick={() => void exportReceived('csv')}>
+                          <Download /> CSV
+                        </Button>
+                        <Button size="sm" loading={exporting === 'pdf'} disabled={!!exporting} onClick={() => void exportReceived('pdf')}>
+                          <Download /> PDF
+                        </Button>
+                      </div>
+                    )
+                  }
+                />
+                {received.isError ? (
+                  <ErrorState error={received.error} onRetry={() => void received.refetch()} />
+                ) : !received.data ? (
+                  <TableSkeleton />
+                ) : received.data.rows.length === 0 ? (
+                  <EmptyState compact icon={BarChart3} title="No payments in this period" />
+                ) : (
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>Date</TH>
+                        <TH>Resident</TH>
+                        <TH>Method</TH>
+                        <TH>Via</TH>
+                        <TH>Reference</TH>
+                        <TH align="right">Amount</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {received.data.rows.map((p) => (
+                        <TR key={p.id}>
+                          <TD className="whitespace-nowrap">{formatDate(p.paid_on)}</TD>
+                          <TD>
+                            <span className="block font-medium text-gray-900">{p.resident_name}</span>
+                            {p.property_name && <span className="block text-xs text-gray-500">{p.property_name}</span>}
+                          </TD>
+                          <TD>{PAYMENT_METHOD_LABELS[p.method]}</TD>
+                          <TD>{viaLabel(p.source)}</TD>
+                          <TD className="max-w-40 truncate text-gray-500">{p.reference ?? '—'}</TD>
+                          <TD numeric className="font-medium text-gray-900">{formatINR(p.amount_paise)}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                )}
+                {received.data && received.data.rows.length > 0 && (
+                  <>
+                    <p className="border-t border-gray-100 px-4 py-3 text-xs text-gray-500">{received.data.total} payments · total {formatINR(received.data.totals.amount_paise)}</p>
+                    <Pagination total={received.data.total} limit={RECEIVED_PAGE} offset={receivedOffset} onChange={setReceivedOffset} />
+                  </>
+                )}
+              </Card>
             </TabsContent>
 
             <TabsContent value="outstanding">

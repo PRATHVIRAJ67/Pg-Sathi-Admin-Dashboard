@@ -64,7 +64,7 @@ export function GenerateRentDialog({ open, onOpenChange }: { open: boolean; onOp
               <MonthInput value={month} onChange={setMonth} className="w-full" />
             </Field>
             <Field label="Property" htmlFor="gr-prop">
-              <PropertySelect id="gr-prop" tenantId={tenantId} value={propertyId} onChange={setPropertyId} />
+              <PropertySelect id="gr-prop" tenantId={tenantId} value={propertyId} onChange={setPropertyId} allowAll={false} />
             </Field>
           </div>
           <div className="rounded-lg border border-gray-200 bg-gray-25 p-3 text-[13px] text-gray-600">

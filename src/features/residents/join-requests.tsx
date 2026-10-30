@@ -63,8 +63,8 @@ export function JoinQrDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       >
         <div className="space-y-5">
           {multi && (
-            <Field label="QR for" htmlFor="jq-prop" className="sm:w-72" hint="One QR for everything, or one per property.">
-              <PropertySelect id="jq-prop" tenantId={tenantId} value={propertyId} onChange={setPropertyId} allLabel="All properties (they choose)" />
+            <Field label="QR for" htmlFor="jq-prop" className="sm:w-72" hint="Each property has its own QR.">
+              <PropertySelect id="jq-prop" tenantId={tenantId} value={propertyId} onChange={setPropertyId} allowAll={false} />
             </Field>
           )}
           {links.isPending ? (
