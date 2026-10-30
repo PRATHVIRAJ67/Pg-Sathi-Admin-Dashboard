@@ -37,7 +37,9 @@ export function WorkspaceProvider({ me, children }: { me: UserContext; children:
   // Drop a remembered property that no longer exists in this tenant.
   const properties = useProperties(tenantId);
   const storedProperty = propertyByTenant[tenantId] ?? null;
-  const propertyId = storedProperty && properties.data && !properties.data.some((p) => p.id === storedProperty) ? null : storedProperty;
+  // With two or more properties one is always selected (first by default), so figures never mix properties.
+  const validStored = storedProperty && properties.data?.some((p) => p.id === storedProperty) ? storedProperty : null;
+  const propertyId = validStored ?? (properties.data && properties.data.length >= 2 ? properties.data[0]!.id : null);
 
   const switchTenant = useCallback(
     (next: string) => {

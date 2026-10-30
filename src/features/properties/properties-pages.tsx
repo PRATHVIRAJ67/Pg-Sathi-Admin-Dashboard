@@ -17,10 +17,15 @@ function address(p: Pick<Property, 'address_line1' | 'locality' | 'city' | 'stat
 }
 
 export function PropertiesPage() {
-  const { tenantId, can } = useCurrentWorkspace();
+  const { tenantId, propertyId, can } = useCurrentWorkspace();
   const open = useDialogs((s) => s.open);
   const [view, setView] = useState<'active' | 'all'>('active');
-  const properties = useProperties(tenantId, view === 'all');
+  const allProperties = useProperties(tenantId, view === 'all');
+  // Only the property chosen in the top dropdown is listed.
+  const properties = {
+    ...allProperties,
+    data: propertyId ? allProperties.data?.filter((p) => p.id === propertyId) : allProperties.data,
+  } as typeof allProperties;
 
   return (
     <div>

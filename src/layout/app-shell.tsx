@@ -183,8 +183,7 @@ function PropertySelector() {
   if (!properties.data || properties.data.length < 2) return null;
   return (
     <div className="hidden w-56 md:block">
-      <Select value={propertyId ?? ''} onChange={(e) => setPropertyId(e.target.value || null)} aria-label="Property filter" className="h-8 text-[13px]">
-        <option value="">All properties</option>
+      <Select value={propertyId ?? ''} onChange={(e) => setPropertyId(e.target.value)} aria-label="Property" className="h-8 text-[13px]">
         {properties.data.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
